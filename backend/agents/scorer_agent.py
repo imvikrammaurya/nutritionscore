@@ -1,7 +1,7 @@
 """
-HealthScorer Sub-Agent
-Scores the product 1-10, identifies bad ingredients with severity,
-and notes positive aspects. Uses Vertex AI — no API key.
+HealthScorer Sub-Agent (2026 Australian HSR Edition)
+Calculates HSR stars (0.5-5.0), identifies Traffic Light categories, 
+and provides specialized dietician feedback using Vertex AI.
 """
 import json
 from google.genai import types
@@ -10,44 +10,56 @@ from tools.vertex_client import client, MODEL_FLASH
 def score_product(nutrition_data: dict) -> dict:
     data_str = json.dumps(nutrition_data, indent=2)
 
-    prompt = f"""You are a certified nutritionist reviewing this product:
+    # Updated prompt with strict Australian 2026 HSR Logic
+    prompt = f"""You are a Senior Nutritionist for the Australian Health Star Rating (HSR) Board.
+Review this product data:
 {data_str}
 
-Score the product from 1 to 10 (1 = extremely unhealthy, 10 = very healthy).
-
-Deduct points for:
-- Total sugar above 10g per serving: minus 2
-- Sodium above 600mg per serving: minus 2
-- Saturated fat above 5g per serving: minus 1.5
-- Trans fat present at all: minus 2
-- Artificial preservatives or colours in ingredients: minus 1
-
-Add points for:
-- Dietary fibre above 5g per serving: plus 1
-- Protein above 10g per serving: plus 1
+TASKS:
+1. Calculate the HSR (0.5 to 5 stars) based on 2026 standards (Strictly per 100g/100mL).
+2. Calculate Baseline Points: Energy (kJ), Sat Fat (g), Total Sugars (g), and Sodium (mg).
+3. Calculate Modifying Points: Protein (g), Fiber (g), and estimate FVNL % (Fruit/Veg/Nuts/Legumes).
+4. Assign a School Canteen Traffic Light Category:
+   - GREEN (4.5 - 5.0 stars): "Everyday Choice"
+   - AMBER (3.5 - 4.0 stars): "Select Carefully"
+   - RED (0.5 - 3.0 stars): "Discretionary / Occasional"
 
 Return ONLY valid JSON, no markdown:
 {{
-  "score": 6,
-  "verdict": "Average",
+  "score": 3.5,
+  "hsr_stars": 3.5,
+  "traffic_light": "AMBER",
+  "verdict": "Amber Choice - Select Carefully",
   "bad_ingredients": [
     {{
-      "name": "Sugar",
-      "amount": "12g per serving",
-      "reason": "Exceeds recommended daily limit in a single serving",
+      "name": "Sodium",
+      "amount": "value",
+      "reason": "High baseline points contribution under HSR 2026 rules",
       "severity": "high"
     }}
   ],
-  "good_aspects": ["High protein", "No trans fat"],
-  "explanation": "Write 2 to 3 plain English sentences explaining this exact score."
+  "good_aspects": ["High Fiber (Modifier)", "Natural Ingredients"],
+  "explanation": "2-3 sentences explaining the Baseline vs. Modifier points that resulted in this star rating."
 }}"""
 
     response = client.models.generate_content(
         model=MODEL_FLASH,
         contents=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
     )
+    
     text = response.text.strip()
+    
+    # Clean up markdown if the model includes it
     if text.startswith("```"):
         lines = text.split("\n")
         text = "\n".join(lines[1:-1])
-    return json.loads(text)
+        
+    try:
+        return json.loads(text)
+    except Exception as e:
+        # Fallback if AI output is malformed
+        return {
+            "score": 0,
+            "verdict": "Error processing nutrition data",
+            "explanation": f"The Scorer Agent encountered an error: {str(e)}"
+        }
